@@ -12,6 +12,9 @@ from paddle import ParamAttr
 from ppcls.utils.save_load import load_dygraph_pretrain, load_dygraph_pretrain_from_url
 
 
+trunc_normal_ = nn.initializer.TruncatedNormal(std=0.02)
+zeros_ = nn.initializer.Constant(value=0.0)
+ones_ = nn.initializer.Constant(value=1.0)
 
 MODEL_URLS = {
     "ConvNext_tiny":
@@ -145,6 +148,15 @@ class CSPConvNext(nn.Layer):
             Block, dims[i], dims[i + 1], depths[i], stride[i], dp_rates[sum(depths[:i]) : sum(depths[:i+1])],act=nn.GELU))
                                       for i in range(n)])
         self.norm = nn.LayerNorm(dims[-1], epsilon=1e-6) 
+
+        self.apply(self._init_weights)
+
+
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Conv2D, nn.Linear)):
+            trunc_normal_(m.weight)
+            zeros_(m.bias)
+    
     
     def forward(self, inputs):
         x = inputs

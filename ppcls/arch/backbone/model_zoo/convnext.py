@@ -293,5 +293,5 @@ class Model(paddle.nn.Layer):
 
 
 if __name__=="__main__":
-    model = ConvNext_tiny(pretrained='convnext_tiny_1k_224')
+    model = ConvNext_tiny()
     paddle.summary(model,(1,3,224,224))
