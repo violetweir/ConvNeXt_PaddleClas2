@@ -18,7 +18,7 @@ Global:
 
 # model architecture
 Arch:
-  name: ConvNext_tiny
+  name: CSPConvNext_tiny
   class_num: 1000
  
 # loss function config for traing/eval process
@@ -53,8 +53,8 @@ DataLoader:
   Train:
     dataset:
       name: ImageNetDataset
-      image_root: ./dataset/ILSVRC2012/
-      cls_label_path: ./dataset/ILSVRC2012/train_list.txt
+      image_root: ./dataset/Light_ILSVRC2012/
+      cls_label_path: ./dataset/Light_ILSVRC2012/train_list.txt
       transform_ops:
         - DecodeImage:
             to_rgb: True
@@ -103,8 +103,8 @@ DataLoader:
   Eval:
     dataset: 
       name: ImageNetDataset
-      image_root: ./dataset/ILSVRC2012/
-      cls_label_path: ./dataset/ILSVRC2012/val_list.txt
+      image_root: ./dataset/Light_ILSVRC2012/
+      cls_label_path: ./dataset/Light_ILSVRC2012/val_list.txt
       transform_ops:
         - DecodeImage:
             to_rgb: True
