@@ -149,13 +149,13 @@ class CSPConvNext(nn.Layer):
                                       for i in range(n)])
         self.norm = nn.LayerNorm(dims[-1], epsilon=1e-6) 
 
-        self.apply(self._init_weights)
+        # self.apply(self._init_weights)
 
 
-    def _init_weights(self, m):
-        if isinstance(m, (nn.Conv2D, nn.Linear)):
-            trunc_normal_(m.weight)
-            zeros_(m.bias)
+    # def _init_weights(self, m):
+    #     if isinstance(m, (nn.Conv2D, nn.Linear)):
+    #         trunc_normal_(m.weight)
+    #         zeros_(m.bias)
     
     
     def forward(self, inputs):
