@@ -3,9 +3,10 @@ from __future__ import division
 from __future__ import print_function
 
 
-from .convnext import Block,LayerNorm, drop_path, ClasHead, _load_pretrained
+from convnext import ClasHead, _load_pretrained
 import paddle 
 import paddle.fluid as fluid
+import paddle.nn.functional as F
 import paddle.nn as nn
 from paddle import ParamAttr
 
@@ -22,6 +23,122 @@ MODEL_URLS = {
     "ConvNext_small":
     "https://passl.bj.bcebos.com/models/convnext_small_1k_224.pdparams",
 }
+
+__all__ = list(MODEL_URLS.keys())
+
+
+class Identity(nn.Layer):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+def drop_path(x, drop_prob=0.0, training=False):
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = paddle.to_tensor(1 - drop_prob)
+    shape = (paddle.shape(x)[0], ) + (1, ) * (x.ndim - 1)
+    random_tensor = keep_prob + paddle.rand(shape, dtype=x.dtype)
+    random_tensor = paddle.floor(random_tensor)  # binarize
+    output = x.divide(keep_prob) * random_tensor
+    return output
+
+
+class DropPath(nn.Layer):
+
+    def __init__(self, drop_prob=None):
+        super(DropPath, self).__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training)
+
+
+class Block(nn.Layer):
+    """ ConvNeXt Block. There are two equivalent implementations:
+    (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
+    (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
+    Args:
+        dim (int): Number of input channels.
+        drop_path (float): Stochastic depth rate. Default: 0.0
+        layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
+    """
+
+    def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6):
+        super().__init__()
+        self.dwconv = nn.Conv2D(dim, dim, kernel_size=7, padding=3,
+                                groups=dim)  # depthwise conv
+        self.norm = LayerNorm(dim, epsilon=1e-6)
+        self.pwconv1 = nn.Linear(
+            dim, 4 * dim)  # pointwise/1x1 convs, implemented with linear layers
+        self.act = nn.GELU()
+        self.pwconv2 = nn.Linear(4 * dim, dim)
+
+        self.gamma = paddle.create_parameter(
+            shape=[dim],
+            dtype='float32',
+            default_initializer=nn.initializer.Constant(
+                value=layer_scale_init_value)
+        ) if layer_scale_init_value > 0 else None
+
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else Identity()
+
+    def forward(self, x):
+        input = x
+        x = self.dwconv(x)
+        x = x.transpose([0, 2, 3, 1])  # (N, C, H, W) -> (N, H, W, C)
+        x = self.norm(x)
+        x = self.pwconv1(x)
+        x = self.act(x)
+        x = self.pwconv2(x)
+        if self.gamma is not None:
+            x = self.gamma * x
+        x = x.transpose([0, 3, 1, 2])  # (N, H, W, C) -> (N, C, H, W)
+
+        x = input + self.drop_path(x)
+        return x
+
+
+class LayerNorm(nn.Layer):
+    """ LayerNorm that supports two data formats: channels_last (default) or channels_first.
+    The ordering of the dimensions in the inputs. channels_last corresponds to inputs with
+    shape (batch_size, height, width, channels) while channels_first corresponds to inputs
+    with shape (batch_size, channels, height, width).
+    """
+
+    def __init__(self,
+                 normalized_shape,
+                 epsilon=1e-6,
+                 data_format="channels_last"):
+        super().__init__()
+
+        self.weight = paddle.create_parameter(shape=[normalized_shape],
+                                              dtype='float32',
+                                              default_initializer=ones_)
+
+        self.bias = paddle.create_parameter(shape=[normalized_shape],
+                                            dtype='float32',
+                                            default_initializer=zeros_)
+
+        self.epsilon = epsilon
+        self.data_format = data_format
+        if self.data_format not in ["channels_last", "channels_first"]:
+            raise NotImplementedError
+        self.normalized_shape = (normalized_shape, )
+
+    def forward(self, x):
+        if self.data_format == "channels_last":
+            return F.layer_norm(x, self.normalized_shape, self.weight,
+                                self.bias, self.epsilon)
+        elif self.data_format == "channels_first":
+            u = x.mean(1, keepdim=True)
+            s = (x - u).pow(2).mean(1, keepdim=True)
+            x = (x - u) / paddle.sqrt(s + self.epsilon)
+            x = self.weight[:, None, None] * x + self.bias[:, None, None]
+            return x
+
 
 class L2Decay(fluid.regularizer.L2Decay):
     def __init__(self, coeff=0.0):
@@ -149,13 +266,16 @@ class CSPConvNext(nn.Layer):
                                       for i in range(n)])
         self.norm = nn.LayerNorm(dims[-1], epsilon=1e-6) 
 
-        # self.apply(self._init_weights)
+        self.apply(self._init_weights)
 
 
-    # def _init_weights(self, m):
-    #     if isinstance(m, (nn.Conv2D, nn.Linear)):
-    #         trunc_normal_(m.weight)
-    #         zeros_(m.bias)
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Conv2D, nn.Linear)):
+            try:
+                trunc_normal_(m.weight)
+                zeros_(m.bias)
+            except:
+                print(m)
     
     
     def forward(self, inputs):

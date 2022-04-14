@@ -201,9 +201,6 @@ def main(args):
             model_path = os.path.join(global_config["output_dir"],
                                       config["Arch"]["name"])
             save_model(train_prog, model_path, epoch_id)
-        if epoch_id >101:
-            print(strip)
-
 
 if __name__ == '__main__':
     paddle.enable_static()
